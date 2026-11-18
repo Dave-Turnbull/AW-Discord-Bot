@@ -34,3 +34,20 @@ The bot can do other slash commands, check out the code or give the bot a go to 
 Rename the exampleconfig.json file to config.json, paste your ChatGPT api token and your discord bot key into this file.
 
 Minimum node version 21.6
+
+## Production Deployment
+
+A production setup is provided via `compose.prod.yaml` and `docker/Dockerfile`.
+The bot has no web endpoint (it only connects outbound to Discord/OpenAI), so
+there is no reverse proxy or exposed port.
+
+1. Copy `.env.example` to `.env` and fill in real values:
+   - `DISCORD_TOKEN` - the Discord bot token.
+   - `OPENAI_API_KEY` - the OpenAI API key.
+2. Build and run: `docker compose -f compose.prod.yaml up -d --build`.
+
+At container startup, `docker/entrypoint.sh` writes `config.json` from the
+`DISCORD_TOKEN` / `OPENAI_API_KEY` environment variables (the app reads its
+config from that file), then starts the bot. Wordle score data
+(`scoreData.json`) is kept in a named volume (`score_data`) so it survives
+rebuilds and redeploys.
