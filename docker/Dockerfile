@@ -12,7 +12,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY package.json package-lock.json ./
 COPY bot.js ./
 COPY commands ./commands
-COPY scoreData.json ./scoreData.json
+COPY scoreData.json ./scoreData.json.default
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

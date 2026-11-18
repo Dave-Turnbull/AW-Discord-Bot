@@ -8,7 +8,7 @@ services:
       DISCORD_TOKEN: ${DISCORD_TOKEN}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
     volumes:
-      - score_data:/app/scoreData.json
+      - score_data:/app/data
 
 volumes:
   score_data:
