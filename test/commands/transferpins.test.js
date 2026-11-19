@@ -126,7 +126,7 @@ describe("/transferpins", () => {
     expect(interaction.editReply).toHaveBeenCalledWith({ content: "There are no pins to transfer." });
   });
 
-  it("copies each pinned message to the target channel using the author's server nickname, and unpins on request", async () => {
+  it("sends each pin as an embed card with nickname, content, jump link and timestamp, and unpins on request", async () => {
     const source = makeChannel();
     const pinned = new Map([
       [
@@ -136,6 +136,7 @@ describe("/transferpins", () => {
           member: { displayName: "DaveNickname" },
           createdTimestamp: Date.parse("2026-01-01"),
           content: "look at this",
+          url: "https://discord.com/channels/1/2/3",
           attachments: { map: () => [] },
           unpin: vi.fn(),
         },
@@ -147,10 +148,14 @@ describe("/transferpins", () => {
 
     await command.execute(interaction, {});
 
-    const sentContent = target.send.mock.calls[0][0].content;
-    expect(sentContent).toContain("DaveNickname");
-    expect(sentContent).toContain("look at this");
-    expect(sentContent).not.toContain("dave_raw_username");
+    const payload = target.send.mock.calls[0][0];
+    expect(payload.content).toBeUndefined();
+    const embed = payload.embeds[0].data;
+    expect(embed.author.name).toBe("DaveNickname");
+    expect(embed.author.name).not.toContain("dave_raw_username");
+    expect(embed.description).toContain("look at this");
+    expect(embed.description).toContain("[Jump to original](https://discord.com/channels/1/2/3)");
+    expect(embed.timestamp).toBe(new Date(Date.parse("2026-01-01")).toISOString());
     expect([...pinned.values()][0].unpin).toHaveBeenCalled();
     expect(interaction.editReply).toHaveBeenCalledWith({
       content: "Pinned messages transferred successfully!",
@@ -178,9 +183,41 @@ describe("/transferpins", () => {
 
     await command.execute(interaction, {});
 
-    const sentContent = target.send.mock.calls[0][0].content;
-    expect(sentContent).toContain("DaveGlobal");
-    expect(sentContent).not.toContain("dave_raw_username");
+    const embed = target.send.mock.calls[0][0].embeds[0].data;
+    expect(embed.author.name).toBe("DaveGlobal");
+    expect(embed.author.name).not.toContain("dave_raw_username");
+  });
+
+  it("puts the first image inside the card and lists other attachments by name without re-uploading", async () => {
+    const attachments = [
+      { url: "https://cdn/video.mp4", contentType: "video/mp4", name: "video.mp4" },
+      { url: "https://cdn/photo.png", contentType: "image/png", name: "photo.png" },
+      { url: "https://cdn/doc.pdf", contentType: "application/pdf", name: "doc.pdf" },
+    ];
+    const source = makeChannel();
+    const pinned = new Map([
+      [
+        "m1",
+        {
+          author: { username: "dave_raw", displayName: "Dave" },
+          member: null,
+          createdTimestamp: Date.parse("2026-01-01"),
+          content: "",
+          attachments: { map: (fn) => attachments.map(fn) },
+          unpin: vi.fn(),
+        },
+      ],
+    ]);
+    source.messages.fetchPinned.mockResolvedValue(pinned);
+    const target = makeChannel();
+    const interaction = makeInteraction({ source, target, unpin: false });
+
+    await command.execute(interaction, {});
+
+    const payload = target.send.mock.calls[0][0];
+    expect(payload.embeds[0].data.image).toEqual({ url: "https://cdn/photo.png" });
+    expect(payload.files).toBeUndefined();
+    expect(payload.embeds[0].data.description).toContain("📎 video.mp4, doc.pdf - see original");
   });
 
   it("reports an error if fetching pinned messages fails after deferring", async () => {
