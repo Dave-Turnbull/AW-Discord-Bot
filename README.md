@@ -1,53 +1,103 @@
 # AutoWeenus Discord Bot
 
-This is a discord bot with an attitude, used in private discord servers to add functionality where it is needed. Here are some of the features...
+A Discord bot with an attitude, used in private Discord servers to add
+functionality where it is needed.
 
-## Wordle Counter
+## Features
 
-When users post their wordle results to any channel, the bot will:
- - Save the user's score or add to its total score,
- - Let the user know it's total score (7 for a guess in 1, 1 for a guess in 6),
- - Give the user an average number of guesses per score,
- - Stop cheating by making sure the format of the message is correct, and making sure the user isn't reposting old days
- - Track the Wordle leaderboards by total score or average score
+### Wordle Counter
 
-## ChatGPT Intergration
+When users post their Wordle results to any channel, the bot will:
+- Save the user's score (7 points for a guess in 1, 1 point for a guess in 6) or add to their total,
+- Reply with total score and average guesses,
+- Reject reposted/out-of-order days and grids that don't match their own header (basic cheat detection).
 
-When the bot is mentioned directly using an @, it will give verbose replies using the ChatGPT api server. Don't rely on it to give you straight answers, it's a sarcastic bot.
+### AI mention replies
 
-## Transfer Pins
+Mention the bot (or reply to one of its messages) and it replies via a
+configurable AI provider - sarcastic, short. Provider is chosen with
+`AI_PROVIDER`:
 
-To get around Discord's 50 pin limit, slash (/) commands can be used to transfer the pins of one channel, to messages in another. For example, if you've got 50 memes pinned in a meme channel, the bot can move these to a new 'best-of-memes' channel and give you space to pin extra memes.
+- `openai` - requires `OPENAI_API_KEY`, model via `OPENAI_MODEL` (default `gpt-4o-mini`)
+- `anthropic` - requires `ANTHROPIC_API_KEY`, model via `ANTHROPIC_MODEL` (default `claude-haiku-4-5-20251001`)
+- `none` (default) - replies with a canned line, no API calls
 
-The bot will post the message, image or link along with the original poster and date to the new channel.
+Adding another provider means adding a new module under `src/ai/providers/`
+that exports `generateReply(userMessage, config)` and registering it in
+`src/ai/index.js`.
 
-## AutoWeenus Phrase Detection
+### Transfer Pins
 
-It is important for a bot to make sure users keep in line, when a user says the phrase 'autoweenus' the bot will let them know it's watching them with one of a series of canned responses.
+Discord caps pins per channel at 50. `/transferpins` copies pinned messages
+(with attachments, author, and timestamp) from one channel to another,
+optionally unpinning the originals.
 
-## Other Features
+### AutoWeenus Phrase Detection
 
-The bot can do other slash commands, check out the code or give the bot a go to try!
+Saying "autoweenus" without directly mentioning the bot gets a canned
+sarcastic reply.
 
-# Set up
+### Other commands
 
-Rename the exampleconfig.json file to config.json, paste your ChatGPT api token and your discord bot key into this file.
+`/ping`, `/avatar`, `/wordle_score`, `/wordle_leaderboard`.
 
-Minimum node version 21.6
+## Architecture
 
-## Production Deployment
+```
+src/
+  index.js              client setup, login, idempotent slash-command registration
+  config.js             env var loading/validation
+  db/                    sqlite (better-sqlite3) connection, migrations, wordle score repository
+  ai/                    provider-agnostic AI layer (openai / anthropic / none)
+  commands/               one file per slash command: { data, execute(interaction, ctx) }
+  services/               pure, unit-tested logic (wordle parsing/scoring, mention replies)
+  handlers/               interactionCreate + messageCreate wiring
+test/                     vitest suite mirroring src/, one spec per module
+```
 
-A production setup is provided via `compose.prod.yaml` and `docker/Dockerfile`.
-The bot has no web endpoint (it only connects outbound to Discord/OpenAI), so
-there is no reverse proxy or exposed port.
+State lives in a SQLite database (`DB_PATH`, default `./data/bot.sqlite3`),
+not flat JSON files - the `wordle_scores` table today, with room to add more
+without a redesign.
 
-1. Copy `.env.example` to `.env` and fill in real values:
-   - `DISCORD_TOKEN` - the Discord bot token.
-   - `OPENAI_API_KEY` - the OpenAI API key.
-2. Build and run: `docker compose -f compose.prod.yaml up -d --build`.
+## Local development
 
-At container startup, `docker/entrypoint.sh` writes `config.json` from the
-`DISCORD_TOKEN` / `OPENAI_API_KEY` environment variables (the app reads its
-config from that file), then starts the bot. Wordle score data
-(`scoreData.json`) is kept in a named volume (`score_data`) so it survives
-rebuilds and redeploys.
+```
+npm install
+DISCORD_TOKEN=... npm start   # secrets passed as real env vars, never added to .env
+npm test
+```
+
+`.env` holds only non-secret defaults and is loaded automatically; edit it
+directly to change `AI_PROVIDER`/model defaults for local testing.
+
+Minimum Node version: 22.
+
+## Configuration
+
+| Variable | Required | Notes |
+|---|---|---|
+| `DISCORD_TOKEN` | yes | bot token |
+| `AI_PROVIDER` | no (default `none`) | `openai`, `anthropic`, or `none` |
+| `OPENAI_API_KEY` | if `AI_PROVIDER=openai` | |
+| `OPENAI_MODEL` | no | default `gpt-4o-mini` |
+| `ANTHROPIC_API_KEY` | if `AI_PROVIDER=anthropic` | |
+| `ANTHROPIC_MODEL` | no | default `claude-haiku-4-5-20251001` |
+| `DB_PATH` | no | default `./data/bot.sqlite3` |
+
+## Deployment
+
+Not a web service - no reverse proxy routes, no published ports. Runs as a
+single container that only makes outbound connections to Discord and
+(optionally) an AI provider.
+
+- `compose.prod.yaml` is the production stack file; `compose.yaml` is for
+  local runs. Both build the image from `Dockerfile` (`build: .`), so the
+  deploy tooling must rebuild the image on redeploy or merged code won't
+  actually ship.
+- Secrets (`DISCORD_TOKEN`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) are
+  injected as environment variables at deploy, never committed.
+- The SQLite database lives in the `score_data` volume mounted at
+  `/app/data` - survives redeploys, isn't tracked in git.
+- On first start, if a legacy `scoreData.json` exists next to the database,
+  its scores are imported into SQLite once and the file is renamed to
+  `scoreData.json.imported`.

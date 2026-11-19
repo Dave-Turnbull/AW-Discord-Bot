@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS wordle_scores (
+  user_id TEXT PRIMARY KEY,
+  score INTEGER NOT NULL DEFAULT 0,
+  guess_total INTEGER NOT NULL DEFAULT 0,
+  last_guess_day INTEGER NOT NULL DEFAULT 0
+);

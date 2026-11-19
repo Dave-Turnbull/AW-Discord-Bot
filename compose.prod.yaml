@@ -2,13 +2,23 @@ services:
   bot:
     build:
       context: .
-      dockerfile: docker/Dockerfile
+      dockerfile: Dockerfile
     restart: unless-stopped
     environment:
       DISCORD_TOKEN: ${DISCORD_TOKEN}
+      AI_PROVIDER: ${AI_PROVIDER:-none}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}
+      DB_PATH: /app/data/bot.sqlite3
     volumes:
       - score_data:/app/data
 
 volumes:
+  # Pinned to the pre-existing volume so the legacy scoreData.json inside it
+  # is picked up by the one-time SQLite import on first start. If the real
+  # on-disk name differs (docker volume ls), fix `name` before merging.
   score_data:
+    external: true
+    name: aw-discord-bot_score_data
