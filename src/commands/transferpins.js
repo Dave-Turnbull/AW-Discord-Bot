@@ -33,26 +33,42 @@ module.exports = {
     const sourceChannel = interaction.options.getChannel("source");
     const targetChannel = interaction.options.getChannel("target");
     const shouldUnpin = interaction.options.getBoolean("unpin");
-    const client = interaction.client;
+
+    // Resolve permissions from GuildMember objects only. permissionsFor(User)
+    // silently returns null when that member isn't cached - which it rarely is
+    // on servers beyond the home one, since the bot runs without the
+    // GuildMembers intent.
+    const me = interaction.guild.members.me;
+    const { Flags } = PermissionsBitField;
 
     if (
-      !sourceChannel.permissionsFor(client.user).has(PermissionsBitField.Flags.ManageMessages)
+      !sourceChannel.permissionsFor(interaction.member)?.has(Flags.ManageMessages)
     ) {
       await interaction.reply({
-        content:
-          "I don't have the necessary permissions to unpin messages in the source channel.",
+        content: "You don't have the necessary permissions.",
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const sourceNeeds = [Flags.ViewChannel, Flags.ReadMessageHistory];
+    if (shouldUnpin) sourceNeeds.push(Flags.ManageMessages);
+    if (!sourceChannel.permissionsFor(me)?.has(sourceNeeds)) {
+      await interaction.reply({
+        content: `I'm missing permissions in the source channel (need View Channel and Read Message History${shouldUnpin ? ", plus Manage Messages to unpin" : ""}).`,
         ephemeral: true,
       });
       return;
     }
 
     if (
-      !sourceChannel
-        .permissionsFor(interaction.member.user)
-        .has(PermissionsBitField.Flags.ManageMessages)
+      !targetChannel
+        .permissionsFor(me)
+        ?.has([Flags.ViewChannel, Flags.SendMessages, Flags.AttachFiles])
     ) {
       await interaction.reply({
-        content: "You don't have the necessary permissions.",
+        content:
+          "I'm missing permissions in the target channel (need View Channel, Send Messages and Attach Files).",
         ephemeral: true,
       });
       return;

@@ -27,13 +27,26 @@ const client = new Client({
   ],
 });
 
+const commandData = [...commands.values()].map((command) => command.data.toJSON());
+
+async function registerCommands(guild) {
+  try {
+    await guild.commands.set(commandData);
+  } catch (error) {
+    console.error(`Failed to register commands in guild ${guild.id}:`, error);
+  }
+}
+
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
-  const commandData = [...commands.values()].map((command) => command.data.toJSON());
   for (const guild of client.guilds.cache.values()) {
-    await guild.commands.set(commandData);
+    await registerCommands(guild);
   }
 });
+
+// Servers joined while running get their commands immediately - without this
+// a restart was needed before slash commands appeared on a new server.
+client.on("guildCreate", registerCommands);
 
 client.on("interactionCreate", createInteractionHandler(commands, { db }));
 client.on("messageCreate", createMessageHandler({ db, config }));
