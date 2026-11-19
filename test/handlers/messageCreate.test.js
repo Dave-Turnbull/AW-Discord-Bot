@@ -3,7 +3,17 @@ const createMessageHandler = require("../../src/handlers/messageCreate");
 
 const BOT_ID = "999000000000000001";
 
-function makeMessage({ authorId = "user-1", content, mentionsBot = false, repliesToBot = false } = {}) {
+function makeMessage({
+  authorId = "user-1",
+  content,
+  mentionsBot = false,
+  repliesToBot = false,
+  referenced = null,
+  referenceFetchFails = false,
+} = {}) {
+  const fetch = referenceFetchFails
+    ? vi.fn().mockRejectedValue(new Error("Unknown Message"))
+    : vi.fn().mockResolvedValue(referenced);
   return {
     author: { id: authorId },
     client: { user: { id: BOT_ID } },
@@ -12,6 +22,8 @@ function makeMessage({ authorId = "user-1", content, mentionsBot = false, replie
       users: { has: (id) => mentionsBot && id === BOT_ID },
       repliedUser: repliesToBot ? { id: BOT_ID } : undefined,
     },
+    reference: referenced || referenceFetchFails ? { messageId: "ref-1" } : undefined,
+    channel: { messages: { fetch } },
     reply: vi.fn(),
   };
 }
@@ -66,6 +78,85 @@ describe("messageCreate handler", () => {
 
     expect(generateReply).toHaveBeenCalled();
     expect(message.reply).toHaveBeenCalledWith("mocked ai reply");
+  });
+
+  it("includes the bot's original message as context when someone replies to it", async () => {
+    const db = makeDb();
+    const handler = createMessageHandler({ db, config: {} });
+    const message = makeMessage({
+      content: "what do you mean by that?",
+      repliesToBot: true,
+      referenced: { author: { id: BOT_ID }, content: "Touch grass immediately." },
+    });
+
+    await handler(message);
+
+    const aiInput = generateReply.mock.calls[0][0];
+    expect(aiInput).toContain('replying to your earlier message: "Touch grass immediately."');
+    expect(aiInput).toContain("what do you mean by that?");
+  });
+
+  it("includes a third party's message as context when mentioned in a reply to them", async () => {
+    const db = makeDb();
+    const handler = createMessageHandler({ db, config: {} });
+    const message = makeMessage({
+      content: `<@${BOT_ID}> is he right?`,
+      mentionsBot: true,
+      referenced: {
+        author: { id: "user-2", displayName: "PeterGlobal" },
+        member: { displayName: "PeterNick" },
+        content: "buy land, grow garlic",
+      },
+    });
+
+    await handler(message);
+
+    const aiInput = generateReply.mock.calls[0][0];
+    expect(aiInput).toContain(`replying to PeterNick's message: "buy land, grow garlic"`);
+    expect(aiInput).toContain("is he right?");
+  });
+
+  it("responds to a ping-suppressed reply to the bot by fetching the reference", async () => {
+    const db = makeDb();
+    const handler = createMessageHandler({ db, config: {} });
+    const message = makeMessage({
+      content: "rude",
+      referenced: { author: { id: BOT_ID }, content: "Touch grass immediately." },
+    });
+
+    await handler(message);
+
+    expect(message.channel.messages.fetch).toHaveBeenCalledWith("ref-1");
+    expect(message.reply).toHaveBeenCalledWith("mocked ai reply");
+  });
+
+  it("still replies without context when the referenced message can't be fetched", async () => {
+    const db = makeDb();
+    const handler = createMessageHandler({ db, config: {} });
+    const message = makeMessage({
+      content: "you good?",
+      repliesToBot: true,
+      referenceFetchFails: true,
+    });
+
+    await handler(message);
+
+    expect(generateReply.mock.calls[0][0]).toBe("you good?");
+    expect(message.reply).toHaveBeenCalledWith("mocked ai reply");
+  });
+
+  it("does not reply to an ordinary reply between two humans", async () => {
+    const db = makeDb();
+    const handler = createMessageHandler({ db, config: {} });
+    const message = makeMessage({
+      content: "lol true",
+      referenced: { author: { id: "user-2" }, content: "some human chat" },
+    });
+
+    await handler(message);
+
+    expect(generateReply).not.toHaveBeenCalled();
+    expect(message.reply).not.toHaveBeenCalled();
   });
 
   it("gives a namedrop reply when 'autoweenus' is said without mentioning the bot", async () => {
