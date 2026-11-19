@@ -10,9 +10,15 @@ module.exports = {
     const scores = db.allScoresSortedByScore();
     let replyMessage = "**WORDLE GLOBAL LEADERBOARD**\n";
 
+    // The per-user REST fetches below can easily take longer than Discord's
+    // 3-second acknowledgement window - defer first, edit the reply in later.
+    await interaction.deferReply();
+
     try {
       const users = await Promise.all(
-        scores.map((entry) => interaction.client.users.fetch(entry.userId))
+        scores.map((entry) =>
+          interaction.client.users.fetch(entry.userId).catch(() => null)
+        )
       );
       // Best-effort: a guild-member fetch gives the server nickname when the
       // user is still a member here; falls back to their global display name
@@ -25,18 +31,16 @@ module.exports = {
 
       scores.forEach((entry, index) => {
         const user = users[index];
-        if (!user) return;
         const avg = averageGuesses(entry.score, entry.guessTotal);
         const name = displayNameFor(members[index], user);
         replyMessage += `**${name}** - Score: **${entry.score}** - Total Wordles:** ${entry.guessTotal}** - Average Guesses:** ${avg}**\n`;
       });
 
-      await interaction.reply(replyMessage);
+      await interaction.editReply(replyMessage);
     } catch (error) {
       console.error("Error fetching user data:", error);
-      await interaction.reply({
+      await interaction.editReply({
         content: "Couldn't build the leaderboard right now.",
-        ephemeral: true,
       });
     }
   },
