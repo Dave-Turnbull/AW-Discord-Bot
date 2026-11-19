@@ -1,6 +1,10 @@
 const ai = require("../ai");
 const { randomNamedropReply } = require("../services/mentionResponses");
+const { displayNameFor } = require("../services/displayName");
 const { evaluateWordleSubmission, averageGuesses } = require("../services/wordle");
+
+// Cap quoted reply context so one long message can't flood the prompt.
+const CONTEXT_MAX_CHARS = 300;
 
 async function safeReply(message, content) {
   if (!content) return;
@@ -13,20 +17,39 @@ async function safeReply(message, content) {
 
 async function handleMentionOrNamedrop(message, config) {
   const client = message.client;
-  // repliedUser is only populated when the reply pinged the bot - discord.js
-  // doesn't expose "is this a reply to the bot" without an extra fetch when
-  // the reply suppressed the ping, so that edge case stays undetected here,
-  // same as it effectively was before (the original check compared the
-  // wrong field and never matched at all).
-  const repliedToBot = message.mentions.repliedUser?.id === client.user.id;
   const mentioned = message.mentions.users.has(client.user.id);
+  const repliedUserIsBot = message.mentions.repliedUser?.id === client.user.id;
+
+  // Fetch the replied-to message so the AI sees what the reply is about.
+  // Also fetched when a reply arrives with no repliedUser (ping suppressed) -
+  // that's the only way to tell whether a silent reply targets the bot.
+  let referenced = null;
+  const worthFetching = mentioned || repliedUserIsBot || !message.mentions.repliedUser;
+  if (message.reference?.messageId && worthFetching) {
+    referenced = await message.channel.messages
+      .fetch(message.reference.messageId)
+      .catch(() => null);
+  }
+
+  const repliedToBot = repliedUserIsBot || referenced?.author?.id === client.user.id;
 
   if (mentioned || repliedToBot) {
     const content = message.content
       .replace(/<@!?[0-9]+>/, "")
       .trim()
       .toLowerCase();
-    const reply = await ai.generateReply(content, config);
+
+    let aiInput = content;
+    if (referenced?.content) {
+      const quoted = referenced.content.slice(0, CONTEXT_MAX_CHARS);
+      const intro =
+        referenced.author?.id === client.user.id
+          ? "they are replying to your earlier message"
+          : `they are replying to ${displayNameFor(referenced.member, referenced.author)}'s message`;
+      aiInput = `(${intro}: "${quoted}")\n${content}`;
+    }
+
+    const reply = await ai.generateReply(aiInput, config);
     await safeReply(message, reply);
     return;
   }
