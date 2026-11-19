@@ -67,8 +67,8 @@ DISCORD_TOKEN=... npm start   # secrets passed as real env vars, never added to 
 npm test
 ```
 
-Copy `.env.example` to `.env` (gitignored, loaded automatically) and edit it
-to change `AI_PROVIDER`/model defaults for local testing.
+`.env` holds only non-secret defaults and is loaded automatically; edit it
+directly to change `AI_PROVIDER`/model defaults for local testing.
 
 Minimum Node version: 22.
 
