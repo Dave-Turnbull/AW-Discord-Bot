@@ -92,7 +92,7 @@ describe("messageCreate handler", () => {
     await handler(message);
 
     const aiInput = generateReply.mock.calls[0][0];
-    expect(aiInput).toContain('replying to your earlier message: "Touch grass immediately."');
+    expect(aiInput).toContain('you: "Touch grass immediately."');
     expect(aiInput).toContain("what do you mean by that?");
   });
 
@@ -112,8 +112,34 @@ describe("messageCreate handler", () => {
     await handler(message);
 
     const aiInput = generateReply.mock.calls[0][0];
-    expect(aiInput).toContain(`replying to PeterNick's message: "buy land, grow garlic"`);
+    expect(aiInput).toContain(`PeterNick: "buy land, grow garlic"`);
     expect(aiInput).toContain("is he right?");
+  });
+
+  it("walks the reply chain oldest-first and stops after five hops", async () => {
+    // Chain, newest to oldest: ref-1 .. ref-7; the walk should keep 5.
+    const byId = {};
+    for (let i = 1; i <= 7; i++) {
+      byId[`ref-${i}`] = {
+        author: i % 2 ? { id: BOT_ID } : { id: "user-2", displayName: `Human${i}` },
+        content: `msg ${i}`,
+        reference: i < 7 ? { messageId: `ref-${i + 1}` } : undefined,
+      };
+    }
+    const db = makeDb();
+    const handler = createMessageHandler({ db, config: {} });
+    const message = makeMessage({ content: "and now?", repliesToBot: true });
+    message.reference = { messageId: "ref-1" };
+    message.channel.messages.fetch = vi.fn((id) => Promise.resolve(byId[id]));
+
+    await handler(message);
+
+    const aiInput = generateReply.mock.calls[0][0];
+    expect(aiInput).toContain('Human4: "msg 4"');
+    expect(aiInput).toContain('you: "msg 1"');
+    expect(aiInput).not.toContain("msg 6");
+    expect(aiInput.indexOf("msg 5")).toBeLessThan(aiInput.indexOf("msg 1"));
+    expect(message.channel.messages.fetch).toHaveBeenCalledTimes(5);
   });
 
   it("responds to a ping-suppressed reply to the bot by fetching the reference", async () => {

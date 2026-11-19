@@ -5,6 +5,25 @@ const { evaluateWordleSubmission, averageGuesses } = require("../services/wordle
 
 // Cap quoted reply context so one long message can't flood the prompt.
 const CONTEXT_MAX_CHARS = 300;
+// How far back up a reply chain to walk; each hop is one REST fetch.
+const CONTEXT_MAX_HOPS = 5;
+
+// Follows message -> replied-to -> its replied-to ... up to CONTEXT_MAX_HOPS.
+// Returns the chain newest-first. Replies always live in the same channel,
+// so every hop fetches from the starting message's channel.
+async function fetchReplyChain(message) {
+  const chain = [];
+  let current = message;
+  while (chain.length < CONTEXT_MAX_HOPS && current.reference?.messageId) {
+    const fetched = await message.channel.messages
+      .fetch(current.reference.messageId)
+      .catch(() => null);
+    if (!fetched) break;
+    chain.push(fetched);
+    current = fetched;
+  }
+  return chain;
+}
 
 async function safeReply(message, content) {
   if (!content) return;
@@ -20,18 +39,16 @@ async function handleMentionOrNamedrop(message, config) {
   const mentioned = message.mentions.users.has(client.user.id);
   const repliedUserIsBot = message.mentions.repliedUser?.id === client.user.id;
 
-  // Fetch the replied-to message so the AI sees what the reply is about.
-  // Also fetched when a reply arrives with no repliedUser (ping suppressed) -
+  // Walk the reply chain so the AI sees the conversation it's part of.
+  // Also walked when a reply arrives with no repliedUser (ping suppressed) -
   // that's the only way to tell whether a silent reply targets the bot.
-  let referenced = null;
+  let chain = [];
   const worthFetching = mentioned || repliedUserIsBot || !message.mentions.repliedUser;
   if (message.reference?.messageId && worthFetching) {
-    referenced = await message.channel.messages
-      .fetch(message.reference.messageId)
-      .catch(() => null);
+    chain = await fetchReplyChain(message);
   }
 
-  const repliedToBot = repliedUserIsBot || referenced?.author?.id === client.user.id;
+  const repliedToBot = repliedUserIsBot || chain[0]?.author?.id === client.user.id;
 
   if (mentioned || repliedToBot) {
     const content = message.content
@@ -40,13 +57,17 @@ async function handleMentionOrNamedrop(message, config) {
       .toLowerCase();
 
     let aiInput = content;
-    if (referenced?.content) {
-      const quoted = referenced.content.slice(0, CONTEXT_MAX_CHARS);
-      const intro =
-        referenced.author?.id === client.user.id
-          ? "they are replying to your earlier message"
-          : `they are replying to ${displayNameFor(referenced.member, referenced.author)}'s message`;
-      aiInput = `(${intro}: "${quoted}")\n${content}`;
+    const lines = chain
+      .slice()
+      .reverse() // oldest first, reading order
+      .filter((m) => m.content)
+      .map((m) => {
+        const name =
+          m.author?.id === client.user.id ? "you" : displayNameFor(m.member, m.author);
+        return `${name}: "${m.content.slice(0, CONTEXT_MAX_CHARS)}"`;
+      });
+    if (lines.length) {
+      aiInput = `(the conversation this replies to, oldest first:\n${lines.join("\n")})\n${content}`;
     }
 
     const reply = await ai.generateReply(aiInput, config);
