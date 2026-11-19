@@ -2,6 +2,7 @@ const {
   SlashCommandBuilder,
   ChannelType,
   PermissionsBitField,
+  EmbedBuilder,
 } = require("discord.js");
 const { displayNameFor } = require("../services/displayName");
 
@@ -51,11 +52,13 @@ module.exports = {
       return;
     }
 
+    // Since 2026-02-23 Discord requires the dedicated Pin Messages
+    // permission to pin/unpin - Manage Messages no longer grants it.
     const sourceNeeds = [Flags.ViewChannel, Flags.ReadMessageHistory];
-    if (shouldUnpin) sourceNeeds.push(Flags.ManageMessages);
+    if (shouldUnpin) sourceNeeds.push(Flags.PinMessages);
     if (!sourceChannel.permissionsFor(me)?.has(sourceNeeds)) {
       await interaction.reply({
-        content: `I'm missing permissions in the source channel (need View Channel and Read Message History${shouldUnpin ? ", plus Manage Messages to unpin" : ""}).`,
+        content: `I'm missing permissions in the source channel (need View Channel and Read Message History${shouldUnpin ? ", plus Pin Messages to unpin" : ""}).`,
         ephemeral: true,
       });
       return;
@@ -64,11 +67,11 @@ module.exports = {
     if (
       !targetChannel
         .permissionsFor(me)
-        ?.has([Flags.ViewChannel, Flags.SendMessages, Flags.AttachFiles])
+        ?.has([Flags.ViewChannel, Flags.SendMessages])
     ) {
       await interaction.reply({
         content:
-          "I'm missing permissions in the target channel (need View Channel, Send Messages and Attach Files).",
+          "I'm missing permissions in the target channel (need View Channel and Send Messages).",
         ephemeral: true,
       });
       return;
@@ -84,11 +87,35 @@ module.exports = {
       }
 
       for (const message of Array.from(pinnedMessages.values()).reverse()) {
-        const messageTimestamp = new Date(message.createdTimestamp).toLocaleString("en-GB");
-        await targetChannel.send({
-          content: `${displayNameFor(message.member, message.author)} - ${messageTimestamp}:\n${message.content}`,
-          files: message.attachments.map((attachment) => attachment.url),
-        });
+        const attachments = message.attachments.map((attachment) => attachment);
+        // First image renders inside the card. Nothing is re-uploaded:
+        // other attachments (videos, files) are listed by name, reachable
+        // via the jump link - raw CDN links would expire anyway.
+        const image = attachments.find((a) => a.contentType?.startsWith("image/"));
+        const others = attachments.filter((a) => a !== image);
+
+        const embed = new EmbedBuilder()
+          .setColor(0x5865f2)
+          .setAuthor({
+            name: displayNameFor(message.member, message.author),
+            iconURL: message.author?.displayAvatarURL?.() ?? undefined,
+          })
+          .setTimestamp(message.createdTimestamp);
+
+        const description = [
+          // Embed descriptions cap at 4096 chars; keep room for the rest.
+          message.content ? message.content.slice(0, 4000) : null,
+          others.length
+            ? `📎 ${others.map((a) => a.name ?? "attachment").join(", ")} - see original`
+            : null,
+          message.url ? `[Jump to original](${message.url})` : null,
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+        if (description) embed.setDescription(description);
+        if (image) embed.setImage(image.url);
+
+        await targetChannel.send({ embeds: [embed] });
 
         if (shouldUnpin) {
           await message.unpin();
