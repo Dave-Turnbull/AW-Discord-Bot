@@ -51,11 +51,13 @@ module.exports = {
       return;
     }
 
+    // Since 2026-02-23 Discord requires the dedicated Pin Messages
+    // permission to pin/unpin - Manage Messages no longer grants it.
     const sourceNeeds = [Flags.ViewChannel, Flags.ReadMessageHistory];
-    if (shouldUnpin) sourceNeeds.push(Flags.ManageMessages);
+    if (shouldUnpin) sourceNeeds.push(Flags.PinMessages);
     if (!sourceChannel.permissionsFor(me)?.has(sourceNeeds)) {
       await interaction.reply({
-        content: `I'm missing permissions in the source channel (need View Channel and Read Message History${shouldUnpin ? ", plus Manage Messages to unpin" : ""}).`,
+        content: `I'm missing permissions in the source channel (need View Channel and Read Message History${shouldUnpin ? ", plus Pin Messages to unpin" : ""}).`,
         ephemeral: true,
       });
       return;

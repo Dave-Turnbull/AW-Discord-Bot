@@ -80,7 +80,7 @@ describe("/transferpins", () => {
     expect(source.messages.fetchPinned).not.toHaveBeenCalled();
   });
 
-  it("only requires the bot's ManageMessages on the source when unpinning", async () => {
+  it("only requires the bot's PinMessages on the source when unpinning", async () => {
     const readOnly = new Set([
       PermissionsBitField.Flags.ViewChannel,
       PermissionsBitField.Flags.ReadMessageHistory,
@@ -97,7 +97,7 @@ describe("/transferpins", () => {
     const withUnpin = makeInteraction({ source: sourceBlocked, target: makeChannel(), unpin: true });
     await command.execute(withUnpin, {});
     expect(withUnpin.reply).toHaveBeenCalledWith(
-      expect.objectContaining({ content: expect.stringMatching(/Manage Messages to unpin/) })
+      expect.objectContaining({ content: expect.stringMatching(/Pin Messages to unpin/) })
     );
     expect(sourceBlocked.messages.fetchPinned).not.toHaveBeenCalled();
   });
